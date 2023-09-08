@@ -738,11 +738,11 @@ impl RepositoryEditor {
         let mut hashes = HashMap::new();
         hashes.insert(
             "sha256".to_string(),
-            Value::String(hex::encode(role.sha256.to_vec())),
+            Value::String(hex::encode(role.sha256)),
         );
 
         TimestampMeta {
-            hashes: Hashes { values: hashes },
+            hashes: Some(Hashes { values: hashes }),
             length: Some(role.length),
             version: role.signed.signed.version(),
             _extra: HashMap::new(),

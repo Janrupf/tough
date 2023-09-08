@@ -1155,8 +1155,8 @@ pub struct TimestampMeta {
     pub length: Option<u64>,
 
     /// The hashes of the snapshot.json file.
-    #[serde(default)]
-    pub hashes: Hashes,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hashes: Option<Hashes>,
 
     /// An integer that is greater than 0. Clients MUST NOT replace a metadata file with a version
     /// number less than the one currently trusted.

@@ -901,7 +901,10 @@ fn load_snapshot(
     })?;
     let size = snapshot_meta.length.unwrap_or(max_snapshot_size);
 
-    let reader = fetch_hashed(transport, url, size, "snapshot.json", &snapshot_meta.hashes)?;
+    let reader: Box<dyn Read + Send> = match snapshot_meta.hashes.as_ref() {
+        Some(hashes) => Box::new(fetch_hashed(transport, url, size, "snapshot.json", hashes)?),
+        None => Box::new(fetch_max_size(transport, url, size, "snapshot.json")?),
+    };
 
     let snapshot: Signed<Snapshot> =
         serde_json::from_reader(reader).context(error::ParseMetadataSnafu {
