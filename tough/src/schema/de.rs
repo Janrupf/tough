@@ -24,6 +24,7 @@ where
     ) -> Result<(), error::Error> {
         let calculated = key.key_id()?;
         let keyid_hex = hex::encode(&keyid);
+        #[cfg(not(feature = "allow-invalid-key-ids"))]
         ensure!(
             keyid == calculated,
             error::InvalidKeyIdSnafu {

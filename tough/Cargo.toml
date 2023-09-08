@@ -39,5 +39,9 @@ tokio = { version = "1.0", features = ["rt-multi-thread"] }
 [features]
 http = ["reqwest"]
 
+# If enabled, keyids are not checked against their content in case the repository does
+# not correctly supply them.
+allow-invalid-key-ids = []
+
 # The `integ` feature enables integration tests. These tests require `noxious-server` to be installed on the host.
 integ = []
