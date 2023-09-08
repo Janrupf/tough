@@ -321,7 +321,7 @@ pub struct SnapshotMeta {
 }
 
 /// Represents the hash dictionary in a `snapshot.json` file.
-#[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Hashes {
     /// The entries in this hash dictionary are the cryptographic hash function and the hexdigest of
     /// the cryptographic function computed on the metadata file.
@@ -1155,6 +1155,7 @@ pub struct TimestampMeta {
     pub length: Option<u64>,
 
     /// The hashes of the snapshot.json file.
+    #[serde(default)]
     pub hashes: Hashes,
 
     /// An integer that is greater than 0. Clients MUST NOT replace a metadata file with a version
