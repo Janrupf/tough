@@ -694,11 +694,14 @@ impl RepositoryEditor {
     where
         R: Role,
     {
+        let mut hashes = HashMap::new();
+        hashes.insert(
+            "sha256".to_string(),
+            Value::String(hex::encode(role.sha256.to_vec())),
+        );
+
         SnapshotMeta {
-            hashes: Some(Hashes {
-                sha256: role.sha256.to_vec().into(),
-                _extra: HashMap::new(),
-            }),
+            hashes: Some(Hashes { values: hashes }),
             length: Some(role.length),
             version: role.signed.signed.version(),
             _extra: HashMap::new(),
@@ -732,11 +735,14 @@ impl RepositoryEditor {
     where
         R: Role,
     {
+        let mut hashes = HashMap::new();
+        hashes.insert(
+            "sha256".to_string(),
+            Value::String(hex::encode(role.sha256.to_vec())),
+        );
+
         TimestampMeta {
-            hashes: Some(Hashes {
-                sha256: role.sha256.to_vec().into(),
-                _extra: HashMap::new(),
-            }),
+            hashes: Hashes { values: hashes },
             length: Some(role.length),
             version: role.signed.signed.version(),
             _extra: HashMap::new(),

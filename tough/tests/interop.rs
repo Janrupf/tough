@@ -74,6 +74,7 @@ fn test_tuf_reference_impl_default_transport() {
     .transport(FilesystemTransport)
     .limits(Limits {
         max_root_size: 1000,
+        max_snapshot_size: 1000,
         max_targets_size: 2000,
         max_timestamp_size: 3000,
         max_root_updates: 1,

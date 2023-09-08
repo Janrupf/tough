@@ -1,6 +1,6 @@
 use crate::error::{self, Result};
-use crate::fetch::{fetch_max_size, fetch_sha256};
-use crate::schema::{RoleType, Target};
+use crate::fetch::{fetch_hashed, fetch_max_size};
+use crate::schema::{Hashes, RoleType, Target};
 use crate::{encode_filename, Prefix, Repository, TargetName};
 use snafu::{OptionExt, ResultExt};
 use std::io::{Read, Write};
@@ -232,7 +232,9 @@ impl Repository {
                     file: "snapshot.json",
                     role: RoleType::Timestamp,
                 })?;
-        Ok(snapshot_meta.length.unwrap_or(self.limits.max_snapshot_size))
+        Ok(snapshot_meta
+            .length
+            .unwrap_or(self.limits.max_snapshot_size))
     }
 
     /// Prepends the target digest to the name if using consistent snapshots. Returns both the
@@ -241,15 +243,22 @@ impl Repository {
         &self,
         target: &Target,
         name: &TargetName,
-    ) -> (Vec<u8>, String) {
-        let sha256 = &target.hashes.sha256.clone().into_vec();
-        if self.consistent_snapshot {
+    ) -> (Hashes, String) {
+        let hash = target.hashes.get_for_filename();
+        if self.consistent_snapshot && hash.is_some() {
             (
-                sha256.clone(),
-                format!("{}.{}", hex::encode(sha256), name.resolved()),
+                target.hashes.clone(),
+                format!("{}.{}", hash.unwrap(), name.resolved()),
             )
         } else {
-            (sha256.clone(), name.resolved().to_owned())
+            if self.consistent_snapshot {
+                log::warn!(
+                    "No digest found for target {}, using filename without hash",
+                    name.resolved()
+                );
+            }
+
+            (target.hashes.clone(), name.resolved().to_owned())
         }
     }
 
@@ -258,10 +267,10 @@ impl Repository {
     pub(crate) fn fetch_target(
         &self,
         target: &Target,
-        digest: &[u8],
+        hashes: &Hashes,
         filename: &str,
     ) -> Result<impl Read + '_> {
-        fetch_sha256(
+        fetch_hashed(
             self.transport.as_ref(),
             self.targets_base_url
                 .join(filename)
@@ -271,7 +280,7 @@ impl Repository {
                 })?,
             target.length,
             "targets.json",
-            digest,
+            hashes,
         )
     }
 }

@@ -35,6 +35,7 @@ mod datastore;
 pub mod editor;
 pub mod error;
 mod fetch;
+mod hash;
 #[cfg(feature = "http")]
 pub mod http;
 mod io;
@@ -47,7 +48,7 @@ mod urlpath;
 
 use crate::datastore::Datastore;
 use crate::error::Result;
-use crate::fetch::{fetch_max_size, fetch_sha256};
+use crate::fetch::{fetch_hashed, fetch_max_size};
 /// An HTTP transport that includes retries.
 #[cfg(feature = "http")]
 pub use crate::http::{HttpTransport, HttpTransportBuilder, RetryRead};
@@ -279,10 +280,10 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_root_size: 1024 * 1024,           // 1 MiB
+            max_root_size: 1024 * 1024,          // 1 MiB
             max_snapshot_size: 1024 * 1024 * 10, // 10 MiB
-            max_targets_size: 1024 * 1024 * 10,   // 10 MiB
-            max_timestamp_size: 1024 * 1024,      // 1 MiB
+            max_targets_size: 1024 * 1024 * 10,  // 10 MiB
+            max_timestamp_size: 1024 * 1024,     // 1 MiB
             max_root_updates: 1024,
         }
     }
@@ -464,8 +465,8 @@ impl Repository {
         //   found earlier in step 4. In either case, the client MUST write the file to
         //   non-volatile storage as FILENAME.EXT.
         Ok(if let Ok(target) = self.targets.signed.find_target(name) {
-            let (sha256, file) = self.target_digest_and_filename(target, name);
-            Some(self.fetch_target(target, &sha256, file.as_str())?)
+            let (hashes, file) = self.target_digest_and_filename(target, name);
+            Some(self.fetch_target(target, &hashes, file.as_str())?)
         } else {
             None
         })
@@ -513,18 +514,23 @@ impl Repository {
             );
         }
 
-        let filename = match prepend {
-            Prefix::Digest => {
-                let target = self.targets.signed.find_target(name).with_context(|_| {
-                    error::CacheTargetMissingSnafu {
-                        target_name: name.clone(),
-                    }
-                })?;
-                let sha256 = target.hashes.sha256.clone().into_vec();
-                format!("{}.{}", hex::encode(sha256), name.resolved())
-            }
-            Prefix::None => name.resolved().to_owned(),
-        };
+        let filename =
+            match prepend {
+                Prefix::Digest => {
+                    let target = self.targets.signed.find_target(name).with_context(|_| {
+                        error::CacheTargetMissingSnafu {
+                            target_name: name.clone(),
+                        }
+                    })?;
+                    let filename_hash = target.hashes.get_for_filename().with_context(|| {
+                        error::HashMissingSnafu {
+                            context: name.resolved().to_string(),
+                        }
+                    })?;
+                    format!("{}.{}", filename_hash, name.resolved())
+                }
+                Prefix::None => name.resolved().to_owned(),
+            };
 
         let resolved_filepath = outdir.join(filename);
 
@@ -895,22 +901,7 @@ fn load_snapshot(
     })?;
     let size = snapshot_meta.length.unwrap_or(max_snapshot_size);
 
-    let reader: Box<dyn Read + Send> = if let Some(hashes) = &snapshot_meta.hashes {
-        Box::new(fetch_sha256(
-            transport,
-            url,
-            size,
-            "timestamp.json",
-            &hashes.sha256,
-        )?)
-    } else {
-        Box::new(fetch_max_size(
-            transport,
-            url,
-            size,
-            "timestamp.json",
-        )?)
-    };
+    let reader = fetch_hashed(transport, url, size, "snapshot.json", &snapshot_meta.hashes)?;
 
     let snapshot: Signed<Snapshot> =
         serde_json::from_reader(reader).context(error::ParseMetadataSnafu {
@@ -922,7 +913,7 @@ fn load_snapshot(
     //   hashes and version do not match, discard the new snapshot metadata, abort the update
     //   cycle, and report the failure.
     //
-    // (We already checked the hash in `fetch_sha256` above.)
+    // (We already checked the hash in `fetch_hashed` above.)
     ensure!(
         snapshot.signed.version == snapshot_meta.version,
         error::VersionMismatchSnafu {
@@ -1049,12 +1040,12 @@ fn load_targets(
         None => (max_targets_size, "max_targets_size parameter"),
     };
     let reader = if let Some(hashes) = &targets_meta.hashes {
-        Box::new(fetch_sha256(
+        Box::new(fetch_hashed(
             transport,
             targets_url,
             max_targets_size,
             specifier,
-            &hashes.sha256,
+            &hashes,
         )?) as Box<dyn Read>
     } else {
         Box::new(fetch_max_size(
@@ -1074,7 +1065,7 @@ fn load_targets(
     //   prevent a mix-and-match attack by man-in-the-middle attackers. If the new targets metadata
     //   file does not match, discard it, abort the update cycle, and report the failure.
     //
-    // (We already checked the hash in `fetch_sha256` above.)
+    // (We already checked the hash in `fetch_hashed` above.)
     ensure!(
         targets.signed.version == targets_meta.version,
         error::VersionMismatchSnafu {

@@ -323,16 +323,41 @@ pub struct SnapshotMeta {
 /// Represents the hash dictionary in a `snapshot.json` file.
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Hashes {
-    /// The SHA 256 digest of a metadata file.
-    pub sha256: Decoded<Hex>,
-
-    /// Extra arguments found during deserialization.
-    ///
-    /// We must store these to correctly verify signatures for this object.
-    ///
-    /// If you're instantiating this struct, you should make this `HashMap::empty()`.
+    /// The entries in this hash dictionary are the cryptographic hash function and the hexdigest of
+    /// the cryptographic function computed on the metadata file.
     #[serde(flatten)]
-    pub _extra: HashMap<String, Value>,
+    pub values: HashMap<String, Value>,
+}
+
+impl Hashes {
+    /// Returns the hash of the given algorithm, if it exists.
+    pub fn get(&self, algorithm: &str) -> Option<&Value> {
+        self.values.get(algorithm)
+    }
+
+    /// Returns some hash from the available hashes which can be used for the filename.
+    ///
+    /// If no hashes are available or no hash can be used for the filename, returns None.
+    pub fn get_for_filename(&self) -> Option<&str> {
+        // Prefer sha256
+        match self.get("sha256") {
+            None => {}
+            Some(v) => {
+                if let Some(v) = v.as_str() {
+                    return Some(v);
+                }
+            }
+        };
+
+        for value in self.values.values() {
+            // Use whatever we can get
+            if let Some(v) = value.as_str() {
+                return Some(v);
+            }
+        }
+
+        None
+    }
 }
 
 impl Snapshot {
@@ -480,12 +505,15 @@ impl Target {
             }
         }
 
+        let mut hashes = HashMap::new();
+        hashes.insert(
+            "sha256".to_string(),
+            Value::String(hex::encode(digest.finish())),
+        );
+
         Ok(Target {
             length,
-            hashes: Hashes {
-                sha256: Decoded::from(digest.finish().as_ref().to_vec()),
-                _extra: HashMap::new(),
-            },
+            hashes: Hashes { values: hashes },
             custom: HashMap::new(),
             _extra: HashMap::new(),
         })
@@ -1127,8 +1155,7 @@ pub struct TimestampMeta {
     pub length: Option<u64>,
 
     /// The hashes of the snapshot.json file.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hashes: Option<Hashes>,
+    pub hashes: Hashes,
 
     /// An integer that is greater than 0. Clients MUST NOT replace a metadata file with a version
     /// number less than the one currently trusted.
@@ -1180,8 +1207,7 @@ fn targets_iter_and_map_test() {
     let nothing = Target {
         length: 0,
         hashes: Hashes {
-            sha256: [0u8].to_vec().into(),
-            _extra: HashMap::default(),
+            values: HashMap::default(),
         },
         custom: HashMap::default(),
         _extra: HashMap::default(),

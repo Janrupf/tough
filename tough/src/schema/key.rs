@@ -67,6 +67,19 @@ pub enum Key {
         #[serde(flatten)]
         _extra: HashMap<String, Value>,
     },
+    /// An EcdsaKey
+    ///
+    /// Since the spec is unclear about the keytype name, we have a duplicated entry
+    /// for keytype ecdsa-sha2-nistp256.
+    EcdsaSha2Nistp256 {
+        /// The Ecdsa key.
+        keyval: EcdsaKey,
+        /// Denotes the key's signature scheme.
+        scheme: EcdsaScheme,
+        /// Any additional fields read during deserialization; will not be used.
+        #[serde(flatten)]
+        _extra: HashMap<String, Value>,
+    },
 }
 
 /// Used to identify the RSA signature scheme in use.
@@ -142,7 +155,12 @@ impl Key {
     /// Verify a signature of an object made with this key.
     pub(super) fn verify(&self, msg: &[u8], signature: &[u8]) -> bool {
         let (alg, public_key): (&dyn VerificationAlgorithm, untrusted::Input<'_>) = match self {
-            Key::Ecdsa {
+            Key::EcdsaSha2Nistp256 {
+                scheme: EcdsaScheme::EcdsaSha2Nistp256,
+                keyval,
+                ..
+            }
+            | Key::Ecdsa {
                 scheme: EcdsaScheme::EcdsaSha2Nistp256,
                 keyval,
                 ..

@@ -7,6 +7,7 @@ use crate::transport::Transport;
 use snafu::ResultExt;
 use std::io::Read;
 use url::Url;
+use crate::schema::Hashes;
 
 pub(crate) fn fetch_max_size<'a>(
     transport: &'a dyn Transport,
@@ -23,14 +24,14 @@ pub(crate) fn fetch_max_size<'a>(
     ))
 }
 
-pub(crate) fn fetch_sha256<'a>(
+pub(crate) fn fetch_hashed<'a>(
     transport: &'a dyn Transport,
     url: Url,
     size: u64,
     specifier: &'static str,
-    sha256: &[u8],
+    hashes: &Hashes,
 ) -> Result<impl Read + Send + 'a> {
-    Ok(DigestAdapter::sha256(
+    Ok(DigestAdapter::new(
         Box::new(MaxSizeAdapter::new(
             transport
                 .fetch(url.clone())
@@ -38,7 +39,7 @@ pub(crate) fn fetch_sha256<'a>(
             specifier,
             size,
         )),
-        sha256,
+        hashes,
         url,
     ))
 }

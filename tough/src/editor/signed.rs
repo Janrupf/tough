@@ -669,24 +669,48 @@ trait TargetsWalker {
         let repo_target = repo_targets
             .get(&target_name)
             .context(error::PathIsNotTargetSnafu { path: input })?;
+
         // compare the hashes of the target from the repo and the target we just created.  They
         // should match, or we alert the caller; if target replacement is intended, it should
         // happen earlier, in RepositoryEditor.
-        ensure!(
-            target_from_path.hashes.sha256 == repo_target.hashes.sha256,
+        let mut repo_hashes = repo_target.hashes.clone();
+        for (alg, value) in &target_from_path.hashes.values {
+            let repo_hash = repo_hashes.values.remove(alg);
+            ensure!(
+                Some(value) == repo_hash.as_ref(),
+                error::HashMismatchSnafu {
+                    context: format!("target (hash algorithm: {})", alg),
+                    calculated: value.to_string(),
+                    expected: repo_hash
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| String::from("<missing>")),
+                }
+            );
+        }
+
+        // If there are any hashes left in the repo target, they're not in the target we just
+        // created, so they're missing.
+        for (alg, hash) in repo_hashes.values {
             error::HashMismatchSnafu {
-                context: "target",
-                calculated: hex::encode(target_from_path.hashes.sha256),
-                expected: hex::encode(&repo_target.hashes.sha256),
+                context: format!("target (hash algorithm: {})", alg),
+                calculated: String::from("<missing>"),
+                expected: hash.to_string(),
             }
-        );
+            .fail()?;
+        }
 
         let dest = if self.consistent_snapshot() {
-            outdir.join(format!(
-                "{}.{}",
-                hex::encode(&target_from_path.hashes.sha256),
-                target_name.resolved()
-            ))
+            let filename_hash = match target_from_path.hashes.get_for_filename() {
+                None => {
+                    return error::HashMissingSnafu {
+                        context: format!("target"),
+                    }
+                    .fail()?;
+                }
+                Some(v) => v,
+            };
+
+            outdir.join(format!("{}.{}", filename_hash, target_name.resolved()))
         } else {
             outdir.join(target_name.resolved())
         };
@@ -704,9 +728,9 @@ trait TargetsWalker {
             // Use DigestAdapter to get a streaming checksum of the file without needing to hold
             // its contents.
             let f = fs::File::open(&dest).context(error::FileOpenSnafu { path: &dest })?;
-            let mut reader = DigestAdapter::sha256(
+            let mut reader = DigestAdapter::new(
                 Box::new(f),
-                &repo_target.hashes.sha256,
+                &repo_target.hashes,
                 Url::from_file_path(&dest)
                     .ok() // dump unhelpful `()` error
                     .context(error::FileUrlSnafu { path: &dest })?,

@@ -141,6 +141,12 @@ pub enum Error {
         backtrace: Backtrace,
     },
 
+    #[snafu(display("Missing hash for {}", context))]
+    HashMissing {
+        context: String,
+        backtrace: Backtrace,
+    },
+
     #[snafu(display("Source path for target must be file or symlink - '{}'", path.display()))]
     InvalidFileType { path: PathBuf, backtrace: Backtrace },
 

@@ -2,52 +2,49 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::error;
-use ring::digest::{Context, SHA256};
+use crate::hash::DownloadHasher;
+use crate::schema::Hashes;
 use std::io::{self, Read};
 use url::Url;
 
 pub(crate) struct DigestAdapter<'a> {
     url: Url,
     reader: Box<dyn Read + Send + 'a>,
-    hash: Vec<u8>,
-    digest: Option<Context>,
+    hashers: Vec<DownloadHasher>,
 }
 
 impl<'a> DigestAdapter<'a> {
-    pub(crate) fn sha256(reader: Box<dyn Read + Send + 'a>, hash: &[u8], url: Url) -> Self {
+    pub(crate) fn new(reader: Box<dyn Read + Send + 'a>, hashes: &Hashes, url: Url) -> Self {
+        let hashers = DownloadHasher::all_supported(hashes);
+        if !hashes.values.is_empty() && hashers.is_empty() {
+            log::warn!(
+                "None of the given hash algorithms at {} are supported",
+                url.as_str()
+            );
+        }
+
         Self {
             url,
             reader,
-            hash: hash.to_owned(),
-            digest: Some(Context::new(&SHA256)),
+            hashers,
         }
     }
 }
 
 impl<'a> Read for DigestAdapter<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        assert!(
-            self.digest.is_some(),
-            "DigestAdapter::read called after end of file"
-        );
-
         let size = self.reader.read(buf)?;
         if size == 0 {
-            let result = Option::take(&mut self.digest).unwrap().finish();
-            if result.as_ref() != self.hash.as_slice() {
-                error::HashMismatchSnafu {
-                    context: self.url.to_string(),
-                    calculated: hex::encode(result),
-                    expected: hex::encode(&self.hash),
-                }
-                .fail()?;
+            for hasher in std::mem::take(&mut self.hashers) {
+                hasher.validate(self.url.as_str())?;
             }
             Ok(size)
-        } else if let Some(digest) = &mut self.digest {
-            digest.update(&buf[..size]);
-            Ok(size)
         } else {
-            unreachable!();
+            for hasher in &mut self.hashers {
+                hasher.update(&buf[..size]);
+            }
+
+            Ok(size)
         }
     }
 }
@@ -95,7 +92,8 @@ impl<'a> Read for MaxSizeAdapter<'a> {
 #[cfg(test)]
 mod tests {
     use crate::io::{DigestAdapter, MaxSizeAdapter};
-    use hex_literal::hex;
+    use crate::schema::Hashes;
+    use std::collections::HashMap;
     use std::io::{Cursor, Read};
     use url::Url;
 
@@ -113,18 +111,36 @@ mod tests {
 
     #[test]
     fn test_digest_adapter() {
-        let mut reader = DigestAdapter::sha256(
+        let mut good_hashes = HashMap::new();
+        good_hashes.insert(
+            "sha256".to_string(),
+            serde_json::Value::String(
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".to_string(),
+            ),
+        );
+
+        let mut reader = DigestAdapter::new(
             Box::new(Cursor::new(b"hello".to_vec())),
-            &hex!("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"),
+            &Hashes {
+                values: good_hashes,
+            },
             Url::parse("file:///").unwrap(),
         );
         let mut buf = Vec::new();
         assert!(reader.read_to_end(&mut buf).is_ok());
         assert_eq!(buf, b"hello");
 
-        let mut reader = DigestAdapter::sha256(
+        let mut bad_hashes = HashMap::new();
+        bad_hashes.insert(
+            "sha256".to_string(),
+            serde_json::Value::String(
+                "0ebdc3317b75839f643387d783535adc360ca01f33c75f7c1e7373adcd675c0b".to_string(),
+            ),
+        );
+
+        let mut reader = DigestAdapter::new(
             Box::new(Cursor::new(b"hello".to_vec())),
-            &hex!("0ebdc3317b75839f643387d783535adc360ca01f33c75f7c1e7373adcd675c0b"),
+            &Hashes { values: bad_hashes },
             Url::parse("file:///").unwrap(),
         );
         let mut buf = Vec::new();
