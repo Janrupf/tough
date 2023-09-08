@@ -58,8 +58,6 @@ pub enum Key {
         _extra: HashMap<String, Value>,
     },
     /// An EcdsaKey
-    #[serde(rename = "ecdsa-sha2-nistp256")]
-    #[serde(alias = "ecdsa")]
     Ecdsa {
         /// The Ecdsa key.
         keyval: EcdsaKey,
