@@ -28,6 +28,7 @@ typed-path = "0.4"
 untrusted = "0.7"
 url = "2"
 walkdir = "2"
+blake3 = { version = "1.4.1", optional = true }
 
 [dev-dependencies]
 failure-server = { path = "../integ/failure-server", version = "0.1.0" }
@@ -42,6 +43,9 @@ http = ["reqwest"]
 # If enabled, keyids are not checked against their content in case the repository does
 # not correctly supply them.
 allow-invalid-key-ids = []
+
+# Add blake3 hash support
+hash-blake3 = ["blake3"]
 
 # The `integ` feature enables integration tests. These tests require `noxious-server` to be installed on the host.
 integ = []

@@ -3,6 +3,9 @@ use crate::schema::Hashes;
 
 pub mod ring;
 
+#[cfg(feature = "hash-blake3")]
+mod blake3;
+
 /// Dynamic dispatch for hash algorithms.
 pub trait HashContext: Send + Sync {
     /// Updates the hash context with the given data.
@@ -36,6 +39,15 @@ impl DownloadHasher {
 
                     out.push(Self::sha256(expected));
                 }
+                #[cfg(feature = "hash-blake3")]
+                "blake3" => {
+                    let expected = match Self::decode_hex_json(alg, hash) {
+                        None => continue,
+                        Some(v) => v,
+                    };
+
+                    out.push(Self::blake3(expected));
+                }
                 _ => {}
             }
         }
@@ -61,6 +73,14 @@ impl DownloadHasher {
     pub fn sha256(expected: Vec<u8>) -> Self {
         Self {
             context: Box::new(ring::RingHashContext::sha256()),
+            expected,
+        }
+    }
+
+    #[cfg(feature = "hash-blake3")]
+    pub fn blake3(expected: Vec<u8>) -> Self {
+        Self {
+            context: Box::new(blake3::Blake3HashContext::new()),
             expected,
         }
     }
