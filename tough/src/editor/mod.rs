@@ -733,11 +733,11 @@ impl RepositoryEditor {
         R: Role,
     {
         TimestampMeta {
-            hashes: Hashes {
+            hashes: Some(Hashes {
                 sha256: role.sha256.to_vec().into(),
                 _extra: HashMap::new(),
-            },
-            length: role.length,
+            }),
+            length: Some(role.length),
             version: role.signed.signed.version(),
             _extra: HashMap::new(),
         }

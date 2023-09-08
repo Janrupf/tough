@@ -232,7 +232,7 @@ impl Repository {
                     file: "snapshot.json",
                     role: RoleType::Timestamp,
                 })?;
-        Ok(snapshot_meta.length)
+        Ok(snapshot_meta.length.unwrap_or(self.limits.max_snapshot_size))
     }
 
     /// Prepends the target digest to the name if using consistent snapshots. Returns both the

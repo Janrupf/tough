@@ -259,6 +259,11 @@ pub struct Limits {
     /// The maximum allowable size in bytes for downloaded root.json files.
     pub max_root_size: u64,
 
+    /// The maximum allowable size in bytes for downloaded snapshot.json files **if** the size is
+    /// not listed in timestamp.json. This setting is ignored if the size of snapshots.json is in
+    /// the signed timestamp.json file.
+    pub max_snapshot_size: u64,
+
     /// The maximum allowable size in bytes for downloaded targets.json file **if** the size is not
     /// listed in snapshots.json. This setting is ignored if the size of targets.json is in the
     /// signed snapshots.json file.
@@ -274,9 +279,10 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_root_size: 1024 * 1024,         // 1 MiB
-            max_targets_size: 1024 * 1024 * 10, // 10 MiB
-            max_timestamp_size: 1024 * 1024,    // 1 MiB
+            max_root_size: 1024 * 1024,           // 1 MiB
+            max_snapshot_size: 1024 * 1024 * 10, // 10 MiB
+            max_targets_size: 1024 * 1024 * 10,   // 10 MiB
+            max_timestamp_size: 1024 * 1024,      // 1 MiB
             max_root_updates: 1024,
         }
     }
@@ -351,6 +357,7 @@ impl Repository {
             &root,
             &timestamp,
             &datastore,
+            limits.max_snapshot_size,
             &metadata_base_url,
             expiration_enforcement,
         )?;
@@ -856,6 +863,7 @@ fn load_snapshot(
     root: &Signed<Root>,
     timestamp: &Signed<Timestamp>,
     datastore: &Datastore,
+    max_snapshot_size: u64,
     metadata_base_url: &Url,
     expiration_enforcement: ExpirationEnforcement,
 ) -> Result<Signed<Snapshot>> {
@@ -880,16 +888,30 @@ fn load_snapshot(
     } else {
         "snapshot.json".to_owned()
     };
-    let reader = fetch_sha256(
-        transport,
-        metadata_base_url.join(&path).context(error::JoinUrlSnafu {
-            path,
-            url: metadata_base_url.clone(),
-        })?,
-        snapshot_meta.length,
-        "timestamp.json",
-        &snapshot_meta.hashes.sha256,
-    )?;
+
+    let url = metadata_base_url.join(&path).context(error::JoinUrlSnafu {
+        path,
+        url: metadata_base_url.clone(),
+    })?;
+    let size = snapshot_meta.length.unwrap_or(max_snapshot_size);
+
+    let reader: Box<dyn Read + Send> = if let Some(hashes) = &snapshot_meta.hashes {
+        Box::new(fetch_sha256(
+            transport,
+            url,
+            size,
+            "timestamp.json",
+            &hashes.sha256,
+        )?)
+    } else {
+        Box::new(fetch_max_size(
+            transport,
+            url,
+            size,
+            "timestamp.json",
+        )?)
+    };
+
     let snapshot: Signed<Snapshot> =
         serde_json::from_reader(reader).context(error::ParseMetadataSnafu {
             role: RoleType::Snapshot,
